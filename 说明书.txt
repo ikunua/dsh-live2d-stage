@@ -1,0 +1,482 @@
+====================================================================
+ DSH Live2D 背景层插件 · 完整说明书
+ 包名：dsh-live2d-stage
+ 版本：0.1.0     build：2026-11-07.9
+ 适用：DeepSeek Harness（DSH）桌面端 / Web UI
+====================================================================
+
+目录
+  1. 这是什么
+  2. 安装
+  3. 放入模型
+  4. 从哪里打开设置
+  5. 全部设置项说明（按界面分组）
+  6. 状态 → 表情：阶段逻辑与优先级
+  7. 常态演出：演出池、概率、间隔、两个总开关
+  8. 实时预览小窗
+  9. 模型兼容性（自动识别与清单补全）
+ 10. 容错、性能与诊断
+ 11. 常见问题排查
+ 12. 文件结构
+ 13. 构建与发布
+ 14. 许可与致谢
+
+
+--------------------------------------------------------------------
+1. 这是什么
+--------------------------------------------------------------------
+把 Live2D（Cubism 3 / 4）模型渲染成 DSH 界面的背景层：
+
+  · 固定铺在整个窗口最底层，不遮挡对话、输入框、按钮（默认鼠标穿透）；
+  · 视线跟随鼠标，失焦自动回正；
+  · 空闲时随机说台词、随机做表情 / 动作；
+  · 按会话状态切换表情（提问 / 输入 / 输出三个阶段优先级最高）；
+  · 设置页里实时预览当前模型；
+  · 模型能力自动识别：有表情就用表情，有动作就用动作，缺什么就不会硬套。
+
+界面层本身会被设为透明（--dsw-alias-bg-base / --dsw-specific-sidebar-fill），
+面板仍保持不透明，所以文字可读性不受影响；不满意可以关掉「透明界面」。
+
+
+--------------------------------------------------------------------
+2. 安装
+--------------------------------------------------------------------
+方式 A：DSH 插件市场
+  设置 → 插件 → 从本地目录 / 压缩包安装，选择本目录（含 package.json）。
+
+方式 B：命令行（在 DSH 中让助手执行）
+  plugin_manager action:install_bundle target:<本目录的绝对路径>
+
+安装后在 设置 → 插件 里应能看到 dsh-live2d-stage 已启用。
+若改了本目录里的 client.js / index.js，桌面端会热加载客户端；
+宿主代码（index.js）需要停用再启用一次插件才会重新加载。
+
+卸载：plugin_manager action:remove_bundle target:dsh-live2d-stage
+
+
+--------------------------------------------------------------------
+3. 放入模型
+--------------------------------------------------------------------
+把模型文件夹放到：
+
+  Windows:  %USERPROFILE%\.dsh\live2d-stage\models\<模型名>\
+
+目录里应当有：
+
+  <模型名>.model3.json      清单（必需）
+  <模型名>.moc3             模型本体（必需）
+  <模型名>.4096/            贴图目录（texture_00.png ...）
+  <模型名>.physics3.json    物理（可选）
+  <模型名>.cdi3.json        部件名表（可选，鼻子识别会用到）
+  <模型名>.vtube.json       VTube Studio 配置（可选，用来取表情名字）
+  *.exp3.json               表情（可选，可放在子目录如 Exp3/）
+  *.motion3.json            动作（可选，可放在子目录如 Animation/、motions/）
+
+放好后在设置页「模型 → 选择模型」下拉里会出现它，选中即生效。
+宿主只读这个目录，不会写入模型文件。
+
+注意：**清单里没声明的表情 / 动作会被自动补全**（见第 9 节），
+所以即使 model3.json 里 FileReferences 是空的，只要文件在目录里就能用。
+
+
+--------------------------------------------------------------------
+4. 从哪里打开设置
+--------------------------------------------------------------------
+DSH 左下角账户 / 设置 → 设置页里的 **「Live2D 背景」** 一页。
+
+所有设置**改完自动保存并立即生效**（约 0.4 秒去抖后自动 POST 到宿主），
+不需要手动点保存；底部还保留了「保存并应用 / 恢复默认」按钮备用。
+设置持久化在：
+
+  %USERPROFILE%\.dsh\live2d-stage\settings.json
+
+删掉这个文件即可恢复出厂设置。
+
+
+--------------------------------------------------------------------
+5. 全部设置项说明（按界面分组）
+--------------------------------------------------------------------
+格式：界面名称 —— 键名（默认值，范围）说明
+
+【模型】
+  选择模型         —— modelUrl（默认：内置 Natori）
+                     下拉列出 models 目录下扫描到的所有 *.model3.json。
+  模型 URL         —— modelUrl（手填站内路径，如 /dsh-live2d-stage/models/xxx/xxx.model3.json）
+  本地 model3.json —— modelPath（填本机绝对路径，宿主会把它挂到 /dsh-live2d-stage/model/ 下）
+                     两者只需用一个；modelUrl 优先。
+  「重新扫描」按钮：重新读取 models 目录。
+
+【模型能力（自动识别）】
+  只读面板，显示当前模型实际识别到的内容：
+  格式（cubism4 / cubism2.1）、清单版本、贴图数、物理、Pose、UserData、
+  表情数（并标注其中多少个是"扫描补全"来的）、动作数与分组、命中区域、
+  眨眼 / 口型参数、以及 warnings。
+  带 ·扫描 标记的表情 / 动作表示清单里没写、由插件自动补全。
+
+【位置与尺寸】
+  锚点         —— anchor（bottom-right）bottom-right / bottom-center / bottom-left /
+                  center-right / center / center-left / top-right / top-center / top-left
+  缩放         —— scale（1，0.2–4）整体缩放倍率
+  屏高占比     —— heightRatio（0.74，0.2–1.6）模型高度占窗口高度的比例
+  水平偏移     —— offsetX（36，-4000–4000）正数向右
+  垂直偏移     —— offsetY（0，-4000–4000）正数向下
+
+【外观】
+  不透明度     —— opacity（1，0–1）
+  暗角遮罩     —— scrim（0.18，0–0.8）模型之上、界面之下的一层渐变遮罩，越大文字越清楚
+  层级 z-index —— zIndex（-2，-10–0）默认 -2（在界面之下）；调到 0 会盖住界面，慎用
+  透明界面     —— appTransparent（true）把界面底色设为透明以露出模型
+  预览里的模型大小 —— previewZoom（1.6，0.3–5）只影响预览小窗，不影响背景
+
+【行为】
+  视线跟随         —— gaze（true）总开关
+  头部转动幅度 X   —— gazeAngleX（20，0–60）度
+  头部转动幅度 Y   —— gazeAngleY（14，0–40）度
+  眼球转动幅度 X   —— gazeEyeBallX（0.7，0–2）
+  眼球转动幅度 Y   —— gazeEyeBallY（0.6，0–2）
+  视线跟随平滑度   —— gazeSmooth（0.08，0.01–0.5）越小越跟手，越大越平滑
+  视线回正平滑度   —— gazeReturnSmooth（0.04，0.01–0.5）
+  身体左右转向     —— bodyFollowX（10，0–30）身体跟着鼠标左右转的幅度
+  身体前后俯仰     —— bodyFollowY（7，0–25）
+  气泡停留         —— bubbleMs（5200，1500–30000）台词气泡停留毫秒
+  阶段最短停留     —— minDwellMs（380，0–5000）阶段切换去抖，防止来回抖
+  完成表情停留     —— successMs（2600，400–30000）success 阶段停留
+  报错表情停留     —— errorMs（5200，600–60000）error 阶段停留
+
+【① 对话表情：提问 / 输入 / 输出（高层级）】
+  三个下拉，分别对应：
+    提问（ask）   —— 需要你确认 / 回答时（审批、提问弹窗）
+    输入（input） —— 你刚发来消息时
+    输出（output）—— 这一轮回答结束时
+  键名：expressions { input, output, ask }
+  下拉里列出当前模型真实存在的表情名 + 「内置默认（…）」。
+  优先级最高（3/2 级），触发时立刻盖掉常态随机表情，到点自动回基础表情。
+  找不到名字时不会写入无效表情，只回退参数快照并告警。
+
+【② 常态演出池：表情库 / 动作库（低层级）】
+  idleExpressionPool / idleMotionPool（默认 [] 空）
+  勾选进池子的项才会被随机抽到；**一个都不勾 = 该模型全部可用项参与随机**。
+  动作库列出模型里每个动作文件（含 ·扫描 标记），表情库列出每个表情名。
+  池子变化会立即重排基础循环（不必等当前动作播完）。
+
+【② 常态演出节奏与概率】
+  待机动作组             —— idleMotionGroup（'' 空 = 自动识别）
+                            手动指定用哪个动作组做待机循环
+  待机循环动作           —— idleLoopEnabled（true）总开关；关掉后连基础循环动作都不播
+  空闲时触发表情概率     —— idleExpressionChance（0.7，0–1）
+                            说台词那一刻顺带做个表情的概率
+  空闲时触发动作概率     —— idleMotionChance（0.35，0–1）
+                            说台词那一刻顺带做一个动作的概率
+  动作间隔               —— randomMotionSeconds（45s，5–3600）
+  动作触发概率           —— randomMotionChance（0.35，0–1）0 = 完全不做随机动作
+  动作持续时间           —— motionHoldMs（4000ms，600–20000）
+                            单个动作占用时长，到点收尾，保证完整播一段、不被打断
+  表情间隔               —— idleExpressionSeconds（15s，3–3600）
+  表情触发概率           —— randomExpressionChance（0.5，0–1）0 = 完全不做随机表情
+  表情停留时长           —— expressionHoldMs（4000ms，300–30000）到点必定回基础表情
+
+  两条触发路径互不影响：
+    A. 说台词时顺带 —— 由「台词触发时间」触发，看 idleExpressionChance / idleMotionChance
+    B. 独立定时器   —— 看 表情间隔 / 表情触发概率，和 动作间隔 / 动作触发概率
+  两个总开关 idleExpressionEnabled / idleMotionEnabled 关掉后，
+  对应一侧完全不动（呼吸、视线、身体微动不受影响）。
+  动作**只在常态（idle）阶段释放**：思考、工具执行、等待回答、收尾期间都不放动作。
+
+【对话感知反应】
+  用户发消息时反应     —— reactToUserMessage（true）
+  工具调用时反应       —— reactToToolCall（true）
+  出现选项/待确认时反应 —— reactToChoices（true）
+  开启后按场景上表情并做点头 / 歪头 / 抬头的身体反应（stats.reacts 计数）。
+
+【模型外观细节】
+  鼻子样式 —— noseMode（soft）soft / off / original
+             仅当检测到"黑色鼻子贴块"时才显示本项：
+             soft = 隐藏黑块并画一个柔和鼻子；off = 完全不要鼻子；original = 保留原版黑块
+  动作幅度 —— motionIntensity（1.4，0–3）身体/头部微动幅度倍率，0 = 完全静止
+
+【演出试玩】
+  列出当前模型全部表情与动作，点一下立即播放（不改阶段设置，便于试效果）。
+  另有「恢复基础表情」。
+
+【空闲台词】
+  台词文本（每行一句，随机播放；留空则空闲不说话）
+  台词触发时间 —— idleSeconds（45s，10–3600）
+                  空闲（没有对话、指针也不动）多久后开始说台词；
+                  同时是两句台词之间的最小间隔。
+
+
+--------------------------------------------------------------------
+6. 状态 → 表情：阶段逻辑与优先级
+--------------------------------------------------------------------
+宿主监听 DSH 事件并广播阶段：
+
+  agent/status = running        → thinking（思考）
+  tools/pre-execute             → tool（执行工具）
+  tools/result 失败 / agent/error → error（沮丧），保持 errorMs
+  agent/status = idle           → success（开心）保持 successMs，再回 idle
+  approval/request、user-questions/request → waiting（期待）
+
+表情优先级（数字越大越优先，高优先级在占用期内不会被低优先级顶掉）：
+
+  3  对话反应（刚输入 / 提问）
+  2  场景表情（刚输出 / 提问）
+  1  常态随机表情
+  0  基础表情（自动回退）
+
+规则：
+  · 场景表情按 success→output、waiting→ask 的链式回退取名字；
+  · 触发时先停掉 SDK 表情队列、再整表回写基础参数快照，避免"状态显示已恢复、脸还停在旧表情"；
+  · 临时表情到点**无条件**回基础表情（由渲染帧驱动计时，窗口失焦也能准点收尾）；
+  · 模型没有 exp3 表情时，阶段切换只走动作与参数回退，不会报错、也不会写入无效表情名。
+
+
+--------------------------------------------------------------------
+7. 常态演出：演出池、概率、间隔、两个总开关
+--------------------------------------------------------------------
+「常态演出」= 空闲（idle）时自己找点事做的行为：
+
+  1. 待机循环动作（idleLoopEnabled）
+     模型的基础循环动作，动作池非空时由池子接管（从池里抽一个当基础循环）。
+     z46 这类"所有动作挤在一个空名字组"的模型会被自动挑出真正的待机动作，
+     不会在 main_1/main_2/home 之间乱跳。
+
+  2. 随机动作（idleMotionEnabled + randomMotionChance > 0）
+     每「动作间隔」秒到点投骰子；命中后从动作池抽一个播放，占用 motionHoldMs。
+     占用期内不打断，也不被新动作顶掉。指针刚动过（<0.8 秒）会顺延 3 秒再试，
+     避免和视线跟随抢镜头。
+
+  3. 随机表情（idleExpressionEnabled + randomExpressionChance > 0）
+     每「表情间隔」秒到点投骰子；命中后从表情池抽一个，保持 expressionHoldMs。
+
+  4. 空闲台词（idleSeconds）
+     空闲达到阈值后说一句台词，并按 idleExpressionChance / idleMotionChance
+     顺带做个表情 / 动作。
+
+调度由渲染帧驱动（墙钟 deadline + tick 推进），而不是 setTimeout/setInterval ——
+所以窗口失焦被浏览器节流时，回到前台仍会按正确的时间点继续，不会"卡住不动"。
+
+
+--------------------------------------------------------------------
+8. 实时预览小窗
+--------------------------------------------------------------------
+打开设置页时，右上角会出现预览小窗；关闭设置页它自动消失（也可以在标题栏 × 关掉）。
+
+  · 画面就是背景层那块真实画布（零拷贝搬运），所以和背景完全一致、逐帧同步，
+    不是定时截图；
+  · 拖标题栏移动；拖右下角 ⤡ 改窗口大小；
+  · 标题栏 ＋ / － 调「模型大小」（= previewZoom，只影响预览，会持久化）；
+  · 在预览画面里拖动可以平移取景（previewOffsetX / previewOffsetY）；
+  · 位置与大小记在浏览器 localStorage（dsh-live2d-preview-prefs）；
+  · 预览窗渲染在 body 层（z-index 很高），所以不会被设置页的毛玻璃压住。
+
+
+--------------------------------------------------------------------
+9. 模型兼容性（自动识别与清单补全）
+--------------------------------------------------------------------
+支持 Cubism 3 / 4（.model3.json + .moc3），采用 pixi-live2d-display 的 cubism4 运行时。
+
+自动识别（只读面板会显示结果）：
+  · 清单结构：FileReferences 的 Moc / Textures / Physics / Pose / UserData /
+    Expressions / Motions、Groups（EyeBlink / LipSync）、HitAreas、Layout；
+  · 表情：Name 字段（缺失时用文件名）；
+  · 动作：按组列出每个文件，并给出可点击的条目；
+  · 部件名表：读取同名 .cdi3.json 的 Parts[].Id → Name。
+
+清单自动补全（宿主侧，只影响返回给前端的 JSON，不改磁盘文件）：
+  · 目录里存在但清单没声明的 *.exp3.json 会被补进 Expressions（标记 Source=scan）；
+  · 目录里存在但清单没声明的 *.motion3.json 会被补进 Motions：
+      Meta.Loop = true 或文件名像待机（idle/loop/stand/scene/default/home/main/待机/默认/平时）
+      就归入 Idle 组，否则以文件名作为组名；
+  · 同名 .vtube.json 的 Hotkeys[].Name 非空时，用它的中文名作为表情名；
+  · 结果按 mtime + size 缓存，配额与目录深度有限制（最多下钻一层子目录）。
+
+鼻子修正（只在需要时出现）：
+  · 按 cdi3 里名字含「鼻 / nose」的部件定位，跳过没有任何 drawable 的空部件；
+  · 只把"主体 drawable 亮度 < 60"的判为黑块才隐藏，正常鼻子（如亮度 190）不动；
+  · 绝不写死部件 ID —— 同一个 Part46 在大肥鱼是鼻子、在薇薇安是左腿。
+
+已知限制：
+  · **Cubism 2.1**（.model.json + moc + 贴图）目前只做识别与告警，不能渲染 ——
+    需要额外打包 live2d.min.js 与 cubism2 运行时（本包未包含）；
+  · 需要网络吗？不需要，全部资源本地提供；
+  · 模型版权归原作者，本仓库只内置了 Live2D 官方示例模型 Natori 用于演示。
+
+
+--------------------------------------------------------------------
+10. 容错、性能与诊断
+--------------------------------------------------------------------
+容错：
+  · 模型加载失败 → 背景留空 + 左下角提示条（带「重试」），不影响界面使用；
+  · 表情名不存在 → 不写入无效名，回退参数快照并告警一次；
+  · 模型没有动作 / 表情 → 对应 UI 直接隐藏并给出说明；
+  · 切换模型时先停掉旧模型的全部动作与表情队列，避免 SDK 内部异常。
+
+性能：
+  · 页面隐藏（切到后台）时暂停渲染循环，回到前台恢复；
+  · 画布节点始终存在，隐藏只改透明度 / 可见性；
+  · 空闲演出由渲染帧驱动，不做高频轮询。
+
+诊断接口（同源可直接访问，无需登录）：
+  GET  /dsh-live2d-stage/api/state     运行状态 + 客户端上报（reports）
+  GET  /dsh-live2d-stage/api/settings  当前配置 + 模型列表 + 锚点/阶段选项
+  POST /dsh-live2d-stage/api/settings  改配置（同样走白名单与夹取）
+  POST /dsh-live2d-stage/api/report    客户端上报（内部使用）
+  GET  /dsh-live2d-stage/events        SSE 实时推送（阶段 / 配置）
+  GET  /dsh-live2d-stage/models/*      用户模型目录（只读）
+  GET  /dsh-live2d-stage/assets/*      内置运行时与示例模型（只读）
+
+/api/state 里值得看的字段：
+  reports.apply.build        客户端构建号（确认热加载是否生效）
+  reports.ready.modelUrl     实际加载的模型
+  reports['model-info']      自动识别结果与 warnings
+  reports.alive              实时状态：phase、表情、动作优先级、
+                             motionTicks / expressionTicks / lastMotionSkip 等调度计数
+  reports['dom-report']      设置页与预览窗是否渲染（settings / preview 字段）
+  reports.error / tick-error / window-error / unhandled-rejection   异常上报
+
+
+--------------------------------------------------------------------
+11. 常见问题排查
+--------------------------------------------------------------------
+Q: 设置页一片空白？
+A: 历史问题是 React Hook 顺序（Hook 写在提前 return 之后）。本包已修复，
+   并且自带静态检查工具 tools/checkhooks.cjs。若仍空白，看 /api/state 的
+   reports['dom-report'].settings 是否为 present:true，并检查 window-error。
+
+Q: 改了设置没反应？
+A: 1) 先看预览小窗状态行与 /api/state 的 reports.alive；
+   2) 注意「间隔」不是关闭开关 —— 要完全关掉随机行为，把对应「触发概率」设为 0；
+   3) 窗口切到前台再看（后台时渲染循环会暂停，stays 在前台才会按时间点触发）。
+
+Q: 模型不动 / 只有耳朵动？
+A: 有些模型的待机动作文件本身只驱动少量参数。插件会额外合成呼吸、身体摆动、
+   手臂微动（motionIntensity 控制幅度）。把「动作幅度」调大一些即可；
+   若「待机循环动作」被关掉，模型会只剩呼吸与视线。
+
+Q: 动作一个接一个停不下来？
+A: 把「动作触发概率」设为 0，或关掉「待机循环动作」，或把「待机动作组」
+   指定为一个你满意的组。
+
+Q: 表情一直不变？
+A: 检查「表情停留时长」与两个总开关；模型没有 exp3 时不会有表情。
+   可在「演出试玩」里点一个表情确认模型本身支持。
+
+Q: 视线不跟着鼠标 / 一直乱扭？
+A: 调整「头部转动幅度」与「视线跟随平滑度」；插件在指针位于窗口内时会压制
+   随机摇摆与"瞥一眼"，只在指针离开窗口后才恢复活泼。
+
+Q: 背景没有出现 / 界面挡住模型？
+A: 确认「透明界面」打开、z-index 在 -10..-1；某些主题会自带不透明底色，
+   把「暗角遮罩」调小试试。
+
+Q: 上传 GitHub 时模型太大？
+A: 本包只带官方示例 Natori（约 3 MB）。自己的模型建议单独放，不要提交。
+
+
+--------------------------------------------------------------------
+12. 文件结构
+--------------------------------------------------------------------
+  package.json          DSH 插件清单（dsh.bundle.patch / dsh.client）
+  cordis.patch.yml      Loader 插入行
+  index.js              宿主半：模型/设置/路由/阶段机/清单补全
+  client.js             客户端半：背景层、渲染、视线、演出调度、设置页、预览窗
+  icon.svg              插件图标
+  locale/zh.json        中文标题与描述
+  locale/en.json        英文标题与描述
+  assets/vendor/        pixi.min.js 6.5.10、cubism4.min.js 0.4.0、live2dcubismcore.min.js
+  assets/model/Natori/  官方示例模型（演示用，可在设置里换成自己的）
+  tools/checkhooks.cjs  React Hook 顺序静态检查
+  说明书.txt            本文件
+  README.md             简明说明
+  LICENSE               MIT（Live2D 官方资产不适用 MIT，见文件内说明）
+
+
+--------------------------------------------------------------------
+13. 构建与发布
+--------------------------------------------------------------------
+  · 无需构建：client.js 是手写 ESM + 模块加载器包装，直接可用；
+  · 改完代码后自检：
+      node --check index.js
+      node --check client.js
+      node tools/checkhooks.cjs
+  · 发版前把 index.js / client.js 里的 BUILD 常量改成同一天版本号
+    （例如 2026-11-07.9），方便在 /api/state 里确认热加载是否生效。
+
+
+--------------------------------------------------------------------
+14. 许可与致谢
+--------------------------------------------------------------------
+  · 插件代码：MIT，见 LICENSE；
+  · pixi.js (MIT)、pixi-live2d-display (MIT)；
+  · Live2D Cubism Core (live2dcubismcore.min.js)：Live2D Inc. 专有许可，
+    仅随本插件用于运行 Live2D 模型；
+  · assets/model/Natori 为 Live2D Inc. 官方示例资源，版权归 Live2D Inc.，
+    仅用于演示，不适用 MIT；
+  · 你自行放入的模型版权归其作者，请勿随本仓库分发未获授权的模型。
+
+  遇到问题请附上 /api/state 的 reports 内容（尤其是 error / alive / model-info）
+  以及在浏览器控制台看到的信息，便于定位。
+
+
+--------------------------------------------------------------------
+附录 A：设置键名索引（供脚本 / API 直接使用）
+--------------------------------------------------------------------
+POST /dsh-live2d-stage/api/settings  {"键名": 值}
+所有键都会经过宿主白名单 + 类型校验 + 区间夹取；非法值被忽略（保留原值），未知键被丢弃。
+
+键名                      默认值            范围 / 取值
+  modelUrl                ''                站内路径，优先于 modelPath
+  modelPath               ''                本机绝对路径（宿主内部使用）
+  anchor                  'bottom-right'    bottom-right / bottom-center / bottom-left /
+                                            center-right / center / center-left /
+                                            top-right / top-center / top-left
+  scale                   1                 [0.2, 4]
+  heightRatio             0.74              [0.2, 1.6]
+  offsetX                 36                [-4000, 4000]
+  offsetY                 0                 [-4000, 4000]
+  opacity                 1                 [0, 1]
+  scrim                   0.18              [0, 0.8]
+  zIndex                  -2                [-10, 0]
+  appTransparent          true              布尔
+  gaze                    true              布尔
+  gazeAngleX              20                [0, 60]
+  gazeAngleY              14                [0, 40]
+  gazeEyeBallX            0.7               [0, 2]
+  gazeEyeBallY            0.6               [0, 2]
+  gazeSmooth              0.08              [0.01, 0.5]
+  gazeReturnSmooth        0.04              [0.01, 0.5]
+  bodyFollowX             10                [0, 30]
+  bodyFollowY             7                 [0, 25]
+  idleSeconds             45                [10, 3600]   台词触发时间
+  bubbleMs                5200              [1500, 30000]
+  minDwellMs              380               [0, 5000]
+  successMs               2600              [400, 30000]
+  errorMs                 5200              [600, 60000]
+  idleLines               []                字符串数组（≤30 条，空串被丢弃）
+  expressions             {}                {input, output, ask, idle, thinking, tool,
+                                              success, error, waiting} → 表情名
+  idleExpressionChance    0.7               [0, 1]   说台词时顺带表情
+  idleMotionChance        0.35              [0, 1]   说台词时顺带动作
+  randomMotionSeconds     45                [5, 3600]
+  randomMotionChance      0.35              [0, 1]   0 = 关随机动作
+  motionHoldMs            4000              [600, 20000]
+  idleMotionGroup         ''                空 = 自动识别
+  idleLoopEnabled         true              布尔   待机循环动作总开关
+  idleExpressionEnabled   true              布尔   随机表情总开关
+  idleMotionEnabled       true              布尔   随机动作总开关
+  idleMotionPool          []                字符串数组（动作 label，空 = 全部）
+  idleExpressionPool      []                字符串数组（表情名，空 = 全部）
+  idleExpressionSeconds   15                [3, 3600]
+  randomExpressionChance  0.5               [0, 1]   0 = 关随机表情
+  expressionHoldMs        4000              [300, 30000]
+  reactToUserMessage      true              布尔
+  reactToToolCall         true              布尔
+  reactToChoices          true              布尔
+  noseMode                'soft'            soft / off / original
+  motionIntensity         1.4               [0, 3]   0 = 完全静止
+  previewZoom             1.6               [0.3, 5]
+  previewOffsetX          0                 [-2000, 2000]
+  previewOffsetY          0                 [-2000, 2000]
+  showNose                false             旧版兼容键（等价 noseMode=original），宿主不再接受
+
+====================================================================

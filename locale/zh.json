@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Live2D 背景层",
+    "description": "在对话界面背后渲染 Live2D 模型：视线跟随、状态表情与空闲台词。"
+  }
+}

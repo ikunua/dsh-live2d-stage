@@ -1,0 +1,38 @@
+{
+  "name": "dsh-live2d-stage",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Live2D 背景层：不遮挡对话，随会话阶段切换表情，视线跟随与空闲演出。",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "assets/**/*",
+    "说明书.txt",
+    "README.md",
+    "LICENSE",
+    "tools/*.cjs"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  }
+}

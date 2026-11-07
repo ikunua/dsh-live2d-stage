@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Live2D Background",
+    "description": "Paints a Live2D model behind the chat UI: gaze tracking, phase expressions, idle chatter."
+  }
+}

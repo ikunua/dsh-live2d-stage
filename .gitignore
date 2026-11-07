@@ -1,0 +1,18 @@
+# 依赖与构建产物
+node_modules/
+dist/
+*.tgz
+
+# 本地调试 / 临时
+_scratch/
+*.log
+.DS_Store
+Thumbs.db
+
+# 用户模型属于运行数据，不要提交到仓库
+models.local/
+*.moc3.tmp
+
+# 编辑器
+.vscode/
+.idea/
